@@ -5,3 +5,4 @@ LAN chat and file transfer
 
 
 ![image](form.jpg)
+![image](diagram.jpg)
