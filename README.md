@@ -1,15 +1,15 @@
 lxw_Udp_Chat
 ============
 
-LAN chat and file transfer
-From my point of view, the LAN Chatting implemented with UDP is much much more complicated than implemented with TCP.
-I implemented it with TCP in Python a couple of days ago. It's much easier and convenient.
+LAN chat and file transfer</br>
+<strong>From my point of view</strong>, the LAN Chatting implemented with <strong>UDP</strong> is much much more complicated than implemented with <strong>TCP</strong>.</br>
+I implemented it with TCP in <strong>Python</strong> a couple of days ago. It's much easier and convenient.</br>
+</br>
 
-
-The main framwork of my program is shown in the following picture.
+The main framwork of my program is shown in the following picture.</br>
 * ![image](diagram.jpg)
 
-
-The window of the program is like this:<br>
+</br>
+The window of the program is like this:</br>
 
 * ![image](form.jpg)
