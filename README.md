@@ -8,5 +8,5 @@ The main framwork of my program is shown in the following picture.
 ![image](diagram.jpg)
 
 
-The window of the program is like this:
+The window of the program is like this:\r\n
 ![image](form.jpg)
