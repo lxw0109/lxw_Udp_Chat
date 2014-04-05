@@ -18,14 +18,17 @@ namespace lxw_Udp_Chat
         //Online Users List.
         public List<string> olUser = new List<string>();
         public Array olUserArr;
-        //FILE TRANSFER.
+        //FILE TRANSFER. UDP
         public UdpClient fileUdpClient;
+        //FILE TRANSFER. TCP
+        public TcpListener tcpListen;
 
         public Communicate()
         {
             //Bind the UdpClient to the specified port.
             this.recvUdpClient = new UdpClient(10086);
             this.fileUdpClient = new UdpClient(10087);
+            //this.tcpListen = new TcpListener(IPAddress.Parse("127.0.0.1"), 10010);
         }
 
         //send/receive Broadcast.
