@@ -11,21 +11,28 @@ using System.Windows.Forms;
 using System.Threading;
 using System.Net;
 using System.Net.Sockets;
+using System.IO;
 
 namespace lxw_Udp_Chat
 {
     public partial class ChatWindow : Form
     {
         private Communicate com = new Communicate();
-        // Mutex.
+        //Mutex.
         private Mutex mut = new Mutex();
+        //The current person(IP Adress in string) who you are chatting with.
+        private string chatPerson = "";
+        //FILE TRANSFER.
+        //Socket socketSent = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        //private UdpClient fileSent = new UdpClient(10087);
 
-
-        private string chatPerson = "";     // The current person(IP Adress in string) who you are chatting with.
+        //Whether receive Window.
+        private IfRecv ifWindow;
+        
 
         public ChatWindow()
         {
-            //线程间操作无效
+            //ForIllegalCrossThreadCalls
             System.Windows.Forms.Control.CheckForIllegalCrossThreadCalls = false;
             InitializeComponent();
         }
@@ -43,7 +50,7 @@ namespace lxw_Udp_Chat
             {
                 com.olUserArr = com.olUser.ToArray();
                 this.comboBox1.Items.AddRange((object[])com.olUserArr);
-            }            
+            }
         }
 
         private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
@@ -52,11 +59,21 @@ namespace lxw_Udp_Chat
             this.label1.Text = "Chatting with " + this.chatPerson;
 
             //Create a new thread to listen the user's input.
-            ThreadStart ts1 = new ThreadStart(listenRemote);
+            ThreadStart ts1 = new ThreadStart(listenRemote_10086);
             Thread thread1 = new Thread(ts1);
             thread1.Start();
+            
+            //IPEndPoint ipSent = new IPEndPoint(IPAddress.Parse(this.chatPerson), 10087);
+            //socketSent.Connect(ipSent);
+            //Create a new thread to listen the user's FILE TRANSFER INFOR.
+            ThreadStart ts2 = new ThreadStart(listenRemote_10087);
+            Thread thread2 = new Thread(ts2);
+            //NOTE: Be of vital importance.
+            thread2.SetApartmentState(ApartmentState.STA);
+            thread2.Start();
         }
 
+        //send Button.
         private void button1_Click(object sender, EventArgs e)
         {
             if (this.chatPerson.Equals(""))
@@ -84,25 +101,26 @@ namespace lxw_Udp_Chat
         }
 
         //When receive packets from the remote host, update the RichTextBox1.
-        public void updateRichTextBox1(string recvContent)
+        /*public void updateRichTextBox1(string recvContent)
         {
             this.richTextBox1.Text += recvContent + "\r\n";
-        }
+        }*/
 
-        //Listen to the user's input. NEVER STOP.
+        //Listen to the user's input(Port 10086). NEVER STOP.
         //public void receiveContent()
-        public void listenRemote()
+        //Receive from the 10086 port. Parent: Master(comboBox1_SelectedIndexChanged).
+        public void listenRemote_10086()
         {
             try
             {
-                IPEndPoint chatPersonIP = new IPEndPoint(IPAddress.Parse(this.chatPerson), 11000);
+                IPEndPoint chatPersonIP = new IPEndPoint(IPAddress.Parse(this.chatPerson), 10086);
                 while (true)
                 {
                     // This expression can never be put into the MUTEX REGION.
                     Byte[] receiveBytes = this.com.recvUdpClient.Receive(ref chatPersonIP);
                     string returnData = Encoding.ASCII.GetString(receiveBytes);
                     //MUTEX
-                    this.mut.WaitOne();                   
+                    this.mut.WaitOne();
                     
                     this.richTextBox1.Text += this.chatPerson + ": " + returnData + "\r\n";
 
@@ -114,6 +132,104 @@ namespace lxw_Udp_Chat
                 MessageBox.Show(e.ToString());
             }
         }
+
+        //Listen to FILE TRANSFER(Port 10087). After creation, NEVER STOP.
+        //Receive from the 10087 port. Parent: master thread(comboBox1_SelectedIndexChanged).
+        public void listenRemote_10087()
+        {
+            try
+            {
+                IPEndPoint fileIP = new IPEndPoint(IPAddress.Parse(this.chatPerson), 10087);
+                while (true)
+                {
+                    // This expression can never be put into the MUTEX REGION.
+                    Byte[] receiveBytes = this.com.fileUdpClient.Receive(ref fileIP);
+                    string returnData = Encoding.ASCII.GetString(receiveBytes).Trim();
+                    //NOTE: lxw MUTEX NOTE HERE.
+                    if (returnData.StartsWith("FILE:"))
+                    {
+                        string fileName = returnData.Substring(5);
+                        this.ifWindow = new IfRecv();
+
+                        ParameterizedThreadStart pts4 = new ParameterizedThreadStart(ifRecvFun);
+                        Thread thread4 = new Thread(pts4);                       
+                        thread4.Start(fileName);
+
+                        while (!this.ifWindow.ifClick)
+                        {
+                            ;   //Waiting for the click. 
+                        }
+                        
+                        thread4.Abort();
+                        if (ifWindow.ifRecv)//Receive
+                        {
+                            #region SAVEFILEDIALOG_NOTE
+                            //CANNOT BE PLACED HERE.
+                            //SaveFileDialog sfd = new SaveFileDialog();
+                            //sfd.ShowDialog();/////?????????????????????????????????
+                            #endregion
+
+                            /*ThreadStart ts5 = new ThreadStart(getSavePath);
+                            Thread thread5 = new Thread(ts5);
+                            thread5.SetApartmentState(ApartmentState.STA);
+                            thread5.Start();*/
+                            SaveFileDialog sfd = new SaveFileDialog();
+                            sfd.ShowDialog();
+                            //fileName = sfd.FileName;  //Absolute Path. E.G. "F:\\lxw.txt"
+
+                            byte[] sendByte = Encoding.Default.GetBytes("Yes");
+                            this.com.fileUdpClient.Send(sendByte, sendByte.Length, fileIP);
+
+                            FileStream write = new FileStream(sfd.FileName, FileMode.OpenOrCreate, FileAccess.Write);
+                            //Receive the content of the file.
+                            while (true)
+                            {
+                                receiveBytes = this.com.fileUdpClient.Receive(ref fileIP);
+                                //whithou ".Trim()" is better.
+                                returnData = Encoding.ASCII.GetString(receiveBytes);
+                                if (returnData == "FILEEND")
+                                {
+                                    break;
+                                }
+                                else
+                                {
+                                    write.Write(receiveBytes, 0, receiveBytes.Length);
+                                }
+                            }
+                            write.Close();
+                            MessageBox.Show("File Transfer Finished!");
+                        }
+                        else    //Not Receive
+                        {
+                            //this.com.fileUdpClient.Send();
+                        }
+                    }
+                    else 
+                    {
+                        MessageBox.Show("FILE TRANSFER WRONG in listenRemote_10087()");
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                MessageBox.Show(e.ToString());
+            }
+        }
+
+        //ifRecv window processing.
+        public void ifRecvFun(Object arg)
+        {
+            string fileName = (string)arg;
+            this.ifWindow.setLabel(fileName);
+            this.ifWindow.ShowDialog();
+        }
+
+        /*//SaveFileDialog.ShowDialog();
+        public void getSavePath()
+        {
+            SaveFileDialog sfd = new SaveFileDialog();
+            sfd.ShowDialog();
+        }*/
 
         // File transfer Button.
         private void button3_Click(object sender, EventArgs e)
@@ -129,24 +245,116 @@ namespace lxw_Udp_Chat
             ofd.ShowDialog();
             string fn = ofd.FileName.ToString();    //fn is in Absolute Path: "C:\\Users\\Administrator\\Documents\\a.txt"
 
-            //MUTEX   Notify both of the peer that file will be transfered.
-            this.mut.WaitOne();
-
-            this.richTextBox1.Text += fn + ": file is being transfered. You can continue your chatting.\r\n";
-
-            this.mut.ReleaseMutex();
-            
-            //Create a new thread specially to transfer the file.
-            ThreadStart ts2 = new ThreadStart(transfer);
-            Thread thread2 = new Thread(ts2);
-            thread2.Start();
-            
+            //Since here is the MASTER THREAD, so we should create a new threads to sendFile and recvFile(create a new thread in sendFile).
+            //OR the main form may GOT STUCK.
+            //Create a new thread specially to send the file.
+            ParameterizedThreadStart pts = new ParameterizedThreadStart(sendFile);
+            Thread thread3 = new Thread(pts);
+            thread3.Start(fn);
         }
 
-        // File transfer.
-        private void transfer()
+        //sendFile thread. Parent: Master(button3_Click).
+        private void sendFile(Object arg)
+        {
+            string fileAbsoluteName = ((string)arg).Trim();
+            int index = fileAbsoluteName.Length;
+            string fileName = "";
+            while (index-- > 0)
+            {
+                if (fileAbsoluteName[index] != '\\')
+                {
+                    fileName += fileAbsoluteName[index].ToString();
+                }
+                else    // '\\'
+                {
+                    break;
+                }
+            }
+            char[] charArray = fileName.ToCharArray();
+            Array.Reverse(charArray);
+            fileName = new string(charArray);
+            
+            string content = "FILE:" + fileName;
+            //byte[] chatPersonBytes = { };
+            IPAddress chatIP = IPAddress.Parse(chatPerson);
+            IPEndPoint chatIPEndPoint = new IPEndPoint(chatIP, 10087);
+            byte[] sendByte = Encoding.Default.GetBytes(content);
+            this.com.fileUdpClient.Send(sendByte, sendByte.Length, chatIPEndPoint);
+            //Get the result whether the other want to receive.
+            Byte[] receiveBytes = this.com.fileUdpClient.Receive(ref chatIPEndPoint);
+            string returnData = Encoding.ASCII.GetString(receiveBytes).Trim();
+            switch (returnData)
+            {
+                case "Yes":
+                    {
+                        FileStream read = new FileStream(fileAbsoluteName, FileMode.Open, FileAccess.Read);
+
+                        byte[] buff = new byte[1024];
+                        int length = 0;
+                        while ((length = read.Read(buff, 0, 1024)) != 0)
+                        {
+                            this.com.fileUdpClient.Send(buff, length, chatIPEndPoint);
+                        }
+                        //Define a flag 'FILEEND' that means the end of the file.
+                        buff = Encoding.Default.GetBytes("FILEEND");
+                        this.com.fileUdpClient.Send(buff, 7, chatIPEndPoint);
+                        read.Close();
+                    }
+                    break;
+                case "No":
+                    {
+                        //Nothing to do.
+                    }
+                    break;
+                case "FILE:":
+                    {
+                        //click but choose nothing.
+                        //omit.
+                    }
+                    break;
+                default:
+                    {
+                        MessageBox.Show("Neither Receive Nor Not Receive.");
+                    }
+                    break;
+            }
+
+        }
+
+        /*//recvFile thread. Parent: sendFile.
+        private void recvFile()
         {
  
         }
+
+        // File transfer.
+        private void transfer(Object arg)
+        {
+            string fileName = (string)arg;
+            string msg = "FILE:" + fileName;
+            //初始化接受套接字：寻址方案，以字符流方式和Tcp通信
+            Socket socketSent = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            // 10086 OK? 10087 OK?
+            IPEndPoint ipSent = new IPEndPoint(IPAddress.Parse(this.chatPerson), 10087);
+            socketSent.Connect(ipSent);
+
+            socketSent.Send(Encoding.Default.GetBytes(msg));
+
+            //定义一个读文件流
+            FileStream readFile = new FileStream(fileName, FileMode.Open, FileAccess.Read);
+            byte[] buff = new byte[1024];
+            int len = 0;
+            while ((len = readFile.Read(buff, 0, 1024)) != 0)
+            {
+                socketSent.Send(buff, 0, len, SocketFlags.None);
+            }
+
+            //将要发送信息的最后加上"END"标识符
+            msg = "FILEEND";
+            socketSent.Send(Encoding.Default.GetBytes(msg));
+
+            readFile.Close();
+            socketSent.Close();            
+        }*/
     }
 }

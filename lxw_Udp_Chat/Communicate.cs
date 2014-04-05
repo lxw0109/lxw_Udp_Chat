@@ -18,50 +18,17 @@ namespace lxw_Udp_Chat
         //Online Users List.
         public List<string> olUser = new List<string>();
         public Array olUserArr;
+        //FILE TRANSFER.
+        public UdpClient fileUdpClient;
 
         public Communicate()
         {
             //Bind the UdpClient to the specified port.
-            this.recvUdpClient = new UdpClient(11000);
+            this.recvUdpClient = new UdpClient(10086);
+            this.fileUdpClient = new UdpClient(10087);
         }
 
         //send/receive Broadcast.
-        //Client. Child Thread.
-        public void sendBroadcast()
-        {
-            //Client
-            try
-            {
-                // Not send these strings, but send the broadcast packet.
-                IPEndPoint broadcastEndPoint = new IPEndPoint(IPAddress.Broadcast, 11000);
-                this.recvUdpClient.Send(new byte[] { 0x31 }, 1, broadcastEndPoint);
-
-                #region code_not_use
-                /*
-                byte[] data = new byte[100];
-                //将数据报发送到在 Connect 方法中建立的远程主机，并返回发送的字节数。
-                //如果在调用此重载之前未调用 Connect，则 Send 方法将引发 SocketException。
-                //udpClient.Send(new byte[] { 0x31, 0x32 }, 2);   // 1 2 
-
-                // Not send these strings, but send the broadcast packet.
-                udpClient.Send(new byte[] { 0x31 }, 1);   // 发什么无所谓
-
-                
-                while (true)
-                {
-                    //返回由远程主机发送的 UDP 数据报的内容
-                    data = udpClient.Receive(ref ep);
-                    string dataByte = Encoding.ASCII.GetString(data);
-                    Console.WriteLine(dataByte);
-                }*/
-                #endregion
-            }
-            catch (Exception e)
-            {
-                MessageBox.Show(e.ToString());
-            }
-        }
-
         public void receiveBroadcast()
         {
             //Server
@@ -72,6 +39,8 @@ namespace lxw_Udp_Chat
                 ThreadStart ts = new ThreadStart(sendBroadcast);
                 Thread thread = new Thread(ts);
                 thread.Start();
+
+                //NOTE: Is 'while(true)' needed here? I think so.
 
                 //IPAddress.Any: Any IP address that is available in local.
                 IPEndPoint RemoteIpEndPoint = new IPEndPoint(IPAddress.Any, 0);
@@ -107,6 +76,42 @@ namespace lxw_Udp_Chat
             }
         }
 
+        //Client. Child Thread.
+        public void sendBroadcast()
+        {
+            //Client
+            try
+            {
+                // Not send these strings, but send the broadcast packet.
+                IPEndPoint broadcastEndPoint = new IPEndPoint(IPAddress.Broadcast, 10086);
+                this.recvUdpClient.Send(new byte[] { 0x31 }, 1, broadcastEndPoint);
+
+                #region code_not_use
+                /*
+                byte[] data = new byte[100];
+                //将数据报发送到在 Connect 方法中建立的远程主机，并返回发送的字节数。
+                //如果在调用此重载之前未调用 Connect，则 Send 方法将引发 SocketException。
+                //udpClient.Send(new byte[] { 0x31, 0x32 }, 2);   // 1 2 
+
+                // Not send these strings, but send the broadcast packet.
+                udpClient.Send(new byte[] { 0x31 }, 1);   // 发什么无所谓
+
+                
+                while (true)
+                {
+                    //返回由远程主机发送的 UDP 数据报的内容
+                    data = udpClient.Receive(ref ep);
+                    string dataByte = Encoding.ASCII.GetString(data);
+                    Console.WriteLine(dataByte);
+                }*/
+                #endregion
+            }
+            catch (Exception e)
+            {
+                MessageBox.Show(e.ToString());
+            }
+        }
+
         //send/receive Content.
         public void sendContent(string chatContent, string chatPerson)
         {
@@ -114,7 +119,7 @@ namespace lxw_Udp_Chat
             {
                 //byte[] chatPersonBytes = { };
                 IPAddress chatIP = IPAddress.Parse(chatPerson);// (Encoding.Default.GetBytes(chatPerson));   //not OK in 'byte[]' way.
-                IPEndPoint chatIPEndPoint = new IPEndPoint(chatIP, 11000);
+                IPEndPoint chatIPEndPoint = new IPEndPoint(chatIP, 10086);
                 byte[] sendByte = Encoding.Default.GetBytes(chatContent);
                 this.recvUdpClient.Send(sendByte, sendByte.Length, chatIPEndPoint);
             }
