@@ -12,6 +12,7 @@ using System.Threading;
 using System.Net;
 using System.Net.Sockets;
 using System.IO;
+using System.Security.Cryptography; //FOR ENCRYPT & DECRYPT.
 
 namespace lxw_Udp_Chat
 {
@@ -28,7 +29,24 @@ namespace lxw_Udp_Chat
 
         //Whether receive Window.
         private IfRecv ifWindow;
-        
+        Rijndael fileRijndael = Rijndael.Create();
+        #region NOT_USE "encrypt and decrypt"
+        // 8 Bytes.
+        private byte[] DESKey = {0x12, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF};
+        // Base64
+        private string base64EncodeChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        private int[] base64DecodeChars = new int[] { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1, -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, -1, -1, -1, -1, -1 };//对应ASICC字符的位置
+        #endregion
+
+        //own encrypt
+        //The last char in the IP address as the KEYWORD.
+        private byte keyword = 0x30;
+
+        protected override void OnClosed(EventArgs e)
+        {
+            base.OnClosed(e);
+            Application.Exit();
+        }
 
         public ChatWindow()
         {
@@ -57,6 +75,9 @@ namespace lxw_Udp_Chat
         {
             this.chatPerson = com.olUserArr.GetValue(this.comboBox1.SelectedIndex).ToString().Replace("Addr:", "");
             this.label1.Text = "Chatting with " + this.chatPerson;
+
+            //Key is the last char of the IP who RECEIVE file.
+            this.keyword = (byte)this.chatPerson[this.chatPerson.Length - 1];
 
             //Create a new thread to listen the user's input.
             ThreadStart ts1 = new ThreadStart(listenRemote_10086);
@@ -269,7 +290,7 @@ namespace lxw_Udp_Chat
                     // A stream for reading and writing.
                     NetworkStream stream = client.GetStream();
                     int i = stream.Read(bytes, 0, bytes.Length);
-                    returnData = System.Text.Encoding.ASCII.GetString(bytes, 0, i);
+                    returnData = Encoding.ASCII.GetString(bytes, 0, i);
 
                     if (returnData.StartsWith("FILE:"))
                     {
@@ -301,24 +322,52 @@ namespace lxw_Udp_Chat
                             //returnData = System.Text.Encoding.ASCII.GetString(bytes, 0, i);
 
                             //Receive the content of the file.
+                            //bytes = new Byte[2048];
+
                             while (true)
                             {
                                 try
                                 {
                                     i = stream.Read(bytes, 0, bytes.Length);
+
+                                    if (i == 0)
+                                    {
+                                        break;
+                                    }
+
+                                    /*byte[] copy = new byte[i];
+                                    for (int j = 0; j < i; ++j)
+                                    {
+                                        copy[j] = bytes[j];
+                                    }
+                                    returnData = DecryptStringFromBytes(copy, this.fileRijndael.Key, this.fileRijndael.IV);
+                                    */
+
+                                    /*//DES
+                                    returnData = Encoding.ASCII.GetString(bytes, 0, i);
+                                    returnData = DecryptDES(returnData, Encoding.ASCII.GetString(this.DESKey));
+                                    */
+                                    
+                                    /*
+                                    //Base64
+                                    returnData = Encoding.ASCII.GetString(bytes, 0, i);
+                                    returnData = base64decode(returnData);*/
+
+                                    //Other(except OWN) needs the following line.
+                                    //byte[] contentBytes = Encoding.Default.GetBytes(returnData);
+
+                                    //Own decrypt.
+                                    bytes = decrypt(bytes);
                                     returnData = Encoding.ASCII.GetString(bytes, 0, i);
 
-                                    //receiveBytes = this.com.fileUdpClient.Receive(ref fileIP);
-                                    ////whithou ".Trim()" is better.
-                                    //returnData = Encoding.ASCII.GetString(receiveBytes);
                                     if (returnData == "FILEEND")
                                     {
                                         break;
                                     }
                                     else
                                     {
-                                        //write.Write(receiveBytes, 0, receiveBytes.Length);
                                         write.Write(bytes, 0, i);
+                                        //write.Write(contentBytes, 0, contentBytes.Length);
                                     }
                                 }
                                 catch (Exception)
@@ -475,8 +524,8 @@ namespace lxw_Udp_Chat
                 // remote IP adrress.
                 string remoteIP = this.chatPerson;
                 TcpClient client = new TcpClient(remoteIP, port); // TcpClient(string hostname, int port)
-                
-                Byte[] data = System.Text.Encoding.ASCII.GetBytes(content);
+
+                Byte[] data = Encoding.ASCII.GetBytes(content);
                 // A client stream for reading and writing.
                 NetworkStream stream = client.GetStream();
                 stream.Write(data, 0, data.Length);
@@ -497,13 +546,60 @@ namespace lxw_Udp_Chat
                             int length = 0;
                             while ((length = read.Read(buff, 0, 1024)) != 0)
                             {
-                                //this.com.fileUdpClient.Send(buff, length, chatIPEndPoint);
+                                //stream.Write(buff, 0, length);
+                                //own encrypt.
+                                buff = encrypt(buff);
                                 stream.Write(buff, 0, length);
+
+                                /*//Rijndael
+                                string str = Encoding.ASCII.GetString(buff, 0, length);
+                                byte[] encrypted = EncryptStringToBytes(str, this.fileRijndael.Key, this.fileRijndael.IV);
+                                //NOTE: After encrypt the LENGTH has changed.
+                                //stream.Write(encrypted, 0, length);
+                                stream.Write(encrypted, 0, encrypted.Length);
+                                */
+
+                                /*
+                                //DES
+                                string str = Encoding.ASCII.GetString(buff, 0, length);
+                                str = EncryptDES(str, Encoding.ASCII.GetString(this.DESKey));
+                                byte[] encrypted = Encoding.Default.GetBytes(str);
+                                stream.Write(encrypted, 0, encrypted.Length);
+                                */
+                                
+
+                                /*//Base64
+                                string str = Encoding.ASCII.GetString(buff, 0, length);
+                                str = base64encode(str);
+                                byte[] encrypted = Encoding.Default.GetBytes(str);
+                                stream.Write(encrypted, 0, encrypted.Length);*/
                             }
                             //Define a flag 'FILEEND' that means the end of the file.
+                            
+                            //buff = Encoding.Default.GetBytes("FILEEND");
+                            //stream.Write(buff, 0, 7);
+
+                            //own encrypt.
                             buff = Encoding.Default.GetBytes("FILEEND");
-                            //this.com.fileUdpClient.Send(buff, 7, chatIPEndPoint);
+                            buff = encrypt(buff);
                             stream.Write(buff, 0, 7);
+
+                            /*//Dijndael
+                            buff = EncryptStringToBytes("FILEEND", this.fileRijndael.Key, this.fileRijndael.IV);
+                            stream.Write(buff, 0, buff.Length);
+                            */
+
+                            /*//DES
+                            buff = Encoding.Default.GetBytes(EncryptDES("FILEEND", Encoding.ASCII.GetString(this.DESKey)));
+                            stream.Write(buff, 0, 0);*/                            
+ 
+                            /*
+                            //Base64
+                            buff = Encoding.Default.GetBytes(base64encode("FILEEND"));
+                            //For Base64 length will be changed into 12.
+                            stream.Write(buff, 0, 12);//stream.Write(buff, 0, 7);
+                            */
+
                             read.Close();
                         }
                         break;
@@ -532,6 +628,314 @@ namespace lxw_Udp_Chat
                 MessageBox.Show(e.ToString());
             }
         }
+
+        private void exitToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            Application.Exit();
+        }
+
+        private void rToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        //Own encrypt.
+        public byte[] encrypt(byte[] contentBytes)
+        {
+            int length = contentBytes.Length;
+            for (int i = 0; i < length; ++i)
+            {
+                contentBytes[i] += this.keyword;
+            }
+            return contentBytes;
+        }
+
+
+        //Own decrypt.
+        public byte[] decrypt(byte[] contentBytes)
+        {
+            int length = contentBytes.Length;
+            for (int i = 0; i < length; ++i)
+            {
+                contentBytes[i] -= this.keyword;
+            }
+            return contentBytes;
+        }
+
+        public string base64encode(string str)
+        { //加密
+            string Out = "";
+            int i = 0, len = str.Length;
+            char c1, c2, c3;
+            while (i < len)
+            {
+                c1 = Convert.ToChar(str[i++] & 0xff);
+                if (i == len)
+                {
+                    Out += base64EncodeChars[c1 >> 2];
+                    Out += base64EncodeChars[(c1 & 0x3) << 4];
+                    Out += "==";
+                    break;
+                }
+                c2 = str[i++];
+                if (i == len)
+                {
+                    Out += base64EncodeChars[c1 >> 2];
+                    Out += base64EncodeChars[((c1 & 0x3) << 4) | ((c2 & 0xF0) >> 4)];
+                    Out += base64EncodeChars[(c2 & 0xF) << 2];
+                    Out += "=";
+                    break;
+                }
+                c3 = str[i++];
+                Out += base64EncodeChars[c1 >> 2];
+                Out += base64EncodeChars[((c1 & 0x3) << 4) | ((c2 & 0xF0) >> 4)];
+                Out += base64EncodeChars[((c2 & 0xF) << 2) | ((c3 & 0xC0) >> 6)];
+                Out += base64EncodeChars[c3 & 0x3F];
+            }
+            return Out;
+        }
+        public string utf16to8(string str)
+        {
+            string Out = "";
+            int i, len;
+            char c;//char为16位Unicode字符,范围0~0xffff,感谢vczh提醒
+            len = str.Length;
+            for (i = 0; i < len; i++)
+            {//根据字符的不同范围分别转化
+                c = str[i];
+                if ((c >= 0x0001) && (c <= 0x007F))
+                {
+                    Out += str[i];
+                }
+                else if (c > 0x07FF)
+                {
+                    Out += (char)(0xE0 | ((c >> 12) & 0x0F));
+                    Out += (char)(0x80 | ((c >> 6) & 0x3F));
+                    Out += (char)(0x80 | ((c >> 0) & 0x3F));
+                }
+                else
+                {
+                    Out += (char)(0xC0 | ((c >> 6) & 0x1F));
+                    Out += (char)(0x80 | ((c >> 0) & 0x3F));
+                }
+            }
+            return Out;
+        }
+
+        public string base64decode(string str)
+        {//解密
+            int c1, c2, c3, c4;
+            int i, len;
+            string Out;
+            len = str.Length;
+            i = 0; Out = "";
+            while (i < len)
+            {
+                do
+                {
+                    c1 = base64DecodeChars[str[i++] & 0xff];
+                } while (i < len && c1 == -1);
+                if (c1 == -1) break;
+                do
+                {
+                    c2 = base64DecodeChars[str[i++] & 0xff];
+                } while (i < len && c2 == -1);
+                if (c2 == -1) break;
+                Out += (char)((c1 << 2) | ((c2 & 0x30) >> 4));
+                do
+                {
+                    c3 = str[i++] & 0xff;
+                    if (c3 == 61) return Out;
+                    c3 = base64DecodeChars[c3];
+                } while (i < len && c3 == -1);
+                if (c3 == -1) break;
+                Out += (char)(((c2 & 0XF) << 4) | ((c3 & 0x3C) >> 2));
+                do
+                {
+                    c4 = str[i++] & 0xff;
+                    if (c4 == 61) return Out;
+                    c4 = base64DecodeChars[c4];
+                } while (i < len && c4 == -1);
+                if (c4 == -1) break;
+                Out += (char)(((c3 & 0x03) << 6) | c4);
+            }
+            return Out;
+        }
+
+        public string utf8to16(string str)
+        {
+            string Out = "";
+            int i, len;
+            char c, char2, char3;
+            len = str.Length;
+            i = 0; while (i < len)
+            {
+                c = str[i++];
+                switch (c >> 4)
+                {
+                    case 0:
+                    case 1:
+                    case 2:
+                    case 3:
+                    case 4:
+                    case 5:
+                    case 6:
+                    case 7: Out += str[i - 1]; break;
+                    case 12:
+                    case 13: char2 = str[i++];
+                        Out += (char)(((c & 0x1F) << 6) | (char2 & 0x3F)); break;
+                    case 14: char2 = str[i++];
+                        char3 = str[i++];
+                        Out += (char)(((c & 0x0F) << 12) | ((char2 & 0x3F) << 6) | ((char3 & 0x3F) << 0)); break;
+                }
+            }
+            return Out;
+        }
+        
+        // DES Algorithm
+        // DES Encrypt.
+        // <param name="encryptString">待加密的字符串</param>
+        // <param name="encryptKey">加密密钥,要求为8位</param>
+        // <returns>加密成功返回加密后的字符串，失败返回源串</returns>
+        public string EncryptDES(string encryptString, string encryptKey)
+        {
+            try
+            {
+                byte[] rgbKey = Encoding.UTF8.GetBytes(encryptKey.Substring(0, 8));
+                byte[] rgbIV = this.DESKey;//Keys;
+                byte[] inputByteArray = Encoding.UTF8.GetBytes(encryptString);
+                DESCryptoServiceProvider dCSP = new DESCryptoServiceProvider();
+                MemoryStream mStream = new MemoryStream();
+                CryptoStream cStream = new CryptoStream(mStream, dCSP.CreateEncryptor(rgbKey, rgbIV), CryptoStreamMode.Write);
+                cStream.Write(inputByteArray, 0, inputByteArray.Length);
+                //cStream.FlushFinalBlock();
+                return Convert.ToBase64String(mStream.ToArray());
+            }
+            catch
+            {
+                return encryptString;
+            }
+        }
+
+        // DES Decrypt.
+        /// <param name="decryptString">待解密的字符串</param>
+        /// <param name="decryptKey">解密密钥,要求为8位,和加密密钥相同</param>
+        /// <returns>解密成功返回解密后的字符串，失败返源串</returns>
+        public string DecryptDES(string decryptString, string decryptKey)
+        {
+            try
+            {
+                byte[] rgbKey = Encoding.UTF8.GetBytes(decryptKey);
+                byte[] rgbIV = this.DESKey;//Keys;
+                byte[] inputByteArray = Convert.FromBase64String(decryptString);
+                DESCryptoServiceProvider DCSP = new DESCryptoServiceProvider();
+                MemoryStream mStream = new MemoryStream();
+                CryptoStream cStream = new CryptoStream(mStream, DCSP.CreateDecryptor(rgbKey, rgbIV), CryptoStreamMode.Write);
+                cStream.Write(inputByteArray, 0, inputByteArray.Length);
+                //cStream.FlushFinalBlock();
+                return Encoding.UTF8.GetString(mStream.ToArray());
+            }
+            catch
+            {
+                return decryptString;
+            }
+        }
+
+
+        // Rijndael Algorithm
+        //Encrpt
+        public byte[] EncryptStringToBytes(string plainText, byte[] Key, byte[] IV)
+        {
+            int length = plainText.Length;
+            // Check arguments.
+            if (plainText == null || plainText.Length <= 0)
+                throw new ArgumentNullException("plainText");
+            if (Key == null || Key.Length <= 0)
+                throw new ArgumentNullException("Key");
+            if (IV == null || IV.Length <= 0)
+                throw new ArgumentNullException("Key");
+
+            byte[] encrypted = Encoding.Default.GetBytes(plainText);
+            try
+            {                
+                // Create an Rijndael object with the specified key and IV.
+                using (Rijndael rijAlg = Rijndael.Create())
+                {
+                    rijAlg.Key = Key;
+                    rijAlg.IV = IV;
+
+                    // Create a decrytor to perform the stream transform.
+                    ICryptoTransform encryptor = rijAlg.CreateEncryptor(rijAlg.Key, rijAlg.IV);
+
+                    // Create the streams used for encryption.
+                    using (MemoryStream msEncrypt = new MemoryStream())
+                    {
+                        using (CryptoStream csEncrypt = new CryptoStream(msEncrypt, encryptor, CryptoStreamMode.Write))
+                        {
+                            using (StreamWriter swEncrypt = new StreamWriter(csEncrypt))
+                            {
+                                //Write all data to the stream.
+                                swEncrypt.Write(plainText);
+                            }
+                            encrypted = msEncrypt.ToArray();
+                        }
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                MessageBox.Show(e.ToString());
+            }
+            // Return the encrypted bytes from the memory stream.
+            return encrypted;
+        }
+
+        //Decrypt
+        public string DecryptStringFromBytes(byte[] cipherText, byte[] Key, byte[] IV)
+        {
+            // Check arguments.
+            if (cipherText == null || cipherText.Length <= 0)
+                throw new ArgumentNullException("cipherText");
+            if (Key == null || Key.Length <= 0)
+                throw new ArgumentNullException("Key");
+            if (IV == null || IV.Length <= 0)
+                throw new ArgumentNullException("Key");
+
+            // Declare the string used to hold the decrypted text.
+            string plaintext = null;
+
+            try
+            {
+                // Create an Rijndael object with the specified key and IV.
+                using (Rijndael rijAlg = Rijndael.Create())
+                {
+                    rijAlg.Key = Key;
+                    rijAlg.IV = IV;
+
+                    // Create a decrytor to perform the stream transform.
+                    ICryptoTransform decryptor = rijAlg.CreateDecryptor(rijAlg.Key, rijAlg.IV);
+
+                    // Create the streams used for decryption.
+                    using (MemoryStream msDecrypt = new MemoryStream(cipherText))
+                    {
+                        using (CryptoStream csDecrypt = new CryptoStream(msDecrypt, decryptor, CryptoStreamMode.Write))
+                        {
+                            using (StreamReader srDecrypt = new StreamReader(csDecrypt))
+                            {
+                                // Read the decrypted bytes from the decrypting stream and place them in a string.
+                                plaintext = srDecrypt.ReadToEnd();
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                MessageBox.Show(e.ToString());
+            }
+            return plaintext;
+        }
+
 
         /*//recvFile thread. Parent: sendFile.
         private void recvFile()
