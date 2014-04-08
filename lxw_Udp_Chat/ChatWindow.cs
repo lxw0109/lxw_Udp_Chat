@@ -42,6 +42,9 @@ namespace lxw_Udp_Chat
         //The last char in the IP address as the KEYWORD.
         private byte keyword = 0x30;
 
+        //filesize.
+        private float fileSize = 0.0f;
+
         protected override void OnClosed(EventArgs e)
         {
             base.OnClosed(e);
@@ -84,7 +87,7 @@ namespace lxw_Udp_Chat
             Thread thread1 = new Thread(ts1);
             thread1.Start();
             
-            /*
+            
             //UDP
             
             //IPEndPoint ipSent = new IPEndPoint(IPAddress.Parse(this.chatPerson), 10087);
@@ -95,8 +98,8 @@ namespace lxw_Udp_Chat
             //NOTE: Be of vital importance.
             thread2.SetApartmentState(ApartmentState.STA);
             thread2.Start();
-            */
-
+            
+            /*
             //TCP
             this.com.tcpListen = new TcpListener(IPAddress.Parse(this.chatPerson), 10010);
             ThreadStart ts5 = new ThreadStart(listenRemote_10010);
@@ -104,6 +107,7 @@ namespace lxw_Udp_Chat
             //NOTE: Be of vital importance.
             thread5.SetApartmentState(ApartmentState.STA);
             thread5.Start();
+            */
         }
 
         //send Button.
@@ -219,7 +223,9 @@ namespace lxw_Udp_Chat
                                 try
                                 {
                                     receiveBytes = this.com.fileUdpClient.Receive(ref fileIP);
-                                    //whithou ".Trim()" is better.
+
+                                    //Decrypt the packet received.
+                                    receiveBytes = decrypt(receiveBytes);
                                     returnData = Encoding.ASCII.GetString(receiveBytes);
                                     if (returnData == "FILEEND")
                                     {
@@ -227,10 +233,12 @@ namespace lxw_Udp_Chat
                                     }
                                     else
                                     {
+                                        //NO need to encrypt.
+                                        this.com.fileUdpClient.Send(Encoding.Default.GetBytes("OK"), 2, fileIP);
                                         write.Write(receiveBytes, 0, receiveBytes.Length);
                                     }
                                 }
-                                catch (Exception)
+                                catch (Exception e)
                                 {
                                     break;
                                 }
@@ -411,20 +419,24 @@ namespace lxw_Udp_Chat
             OpenFileDialog ofd = new OpenFileDialog();
             ofd.ShowDialog();
             string fn = ofd.FileName.ToString();    //fn is in Absolute Path: "C:\\Users\\Administrator\\Documents\\a.txt"
-
-            /*
+            
+            // Show how much did the file send/receive.
+            //FileInfo file = new FileInfo(fn);
+            //this.fileSize = float.Parse(file.Length);     // file.Length: BYTE.
+            
             //Create a new thread in sendFile specially to send the file.
             //Since here is the MASTER THREAD, so we should create a new threads to sendFile and recvFile.
             //OR the main form may GOT STUCK.
             ParameterizedThreadStart pts = new ParameterizedThreadStart(sendFile);
             Thread thread3 = new Thread(pts);
             thread3.Start(fn);
-            */
 
+            /*
             //TCP
             ParameterizedThreadStart pts = new ParameterizedThreadStart(tcpSendFile);
             Thread thread6 = new Thread(pts);
             thread6.Start(fn);
+            */
         }
 
         //sendFile thread. Parent: Master(button3_Click).
@@ -461,18 +473,33 @@ namespace lxw_Udp_Chat
             {
                 case "Yes":
                     {
-                        FileStream read = new FileStream(fileAbsoluteName, FileMode.Open, FileAccess.Read);
-
-                        byte[] buff = new byte[1024];
-                        int length = 0;
-                        while ((length = read.Read(buff, 0, 1024)) != 0)
+                        try
                         {
-                            this.com.fileUdpClient.Send(buff, length, chatIPEndPoint);
+                            FileStream read = new FileStream(fileAbsoluteName, FileMode.Open, FileAccess.Read);
+
+                            byte[] buff = new byte[1024];
+                            int length = 0;
+                            byte[] ack = new byte[2];
+                            while ((length = read.Read(buff, 0, 1024)) != 0)
+                            {
+                                //Encrypt the packet to be sent.
+                                buff = encrypt(buff);
+                                this.com.fileUdpClient.Send(buff, length, chatIPEndPoint);
+
+                                //Receive the ack packet.
+                                ack = this.com.fileUdpClient.Receive(ref chatIPEndPoint);
+                            }
+                            //Define a flag 'FILEEND' that means the end of the file.
+                            buff = Encoding.Default.GetBytes("FILEEND");
+                            //Encrypt the packet to be sent.
+                            buff = encrypt(buff);
+                            this.com.fileUdpClient.Send(buff, 7, chatIPEndPoint);
+                            read.Close();
                         }
-                        //Define a flag 'FILEEND' that means the end of the file.
-                        buff = Encoding.Default.GetBytes("FILEEND");
-                        this.com.fileUdpClient.Send(buff, 7, chatIPEndPoint);
-                        read.Close();
+                        catch (Exception e)
+                        {
+                            MessageBox.Show(e.ToString());
+                        }
                     }
                     break;
                 case "No":
@@ -542,7 +569,11 @@ namespace lxw_Udp_Chat
                         {
                             FileStream read = new FileStream(fileAbsoluteName, FileMode.Open, FileAccess.Read);
 
-                            byte[] buff = new byte[1024];
+                            float blockSize = 1024.0f;
+                            int blockNum = 0;
+                            float transRatio = 0.0f;
+
+                            byte[] buff = new byte[1024];                           
                             int length = 0;
                             while ((length = read.Read(buff, 0, 1024)) != 0)
                             {
@@ -662,6 +693,7 @@ namespace lxw_Udp_Chat
             return contentBytes;
         }
 
+        //Base64
         public string base64encode(string str)
         { //加密
             string Out = "";
