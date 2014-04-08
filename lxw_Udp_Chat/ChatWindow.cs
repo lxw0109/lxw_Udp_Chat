@@ -13,6 +13,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.IO;
 using System.Security.Cryptography; //FOR ENCRYPT & DECRYPT.
+using System.Timers;
 
 namespace lxw_Udp_Chat
 {
@@ -41,9 +42,16 @@ namespace lxw_Udp_Chat
         //own encrypt
         //The last char in the IP address as the KEYWORD.
         private byte keyword = 0x30;
-
         //filesize.
         private float fileSize = 0.0f;
+        //ack package.
+        private byte[] ack = new byte[2];
+        //whether in the OnTimerEvent Method.
+        private bool inTimeEvent = false;
+        //whether receive the ack package.
+        private bool recvFlag = false;
+        //Update the user-online list.
+        private System.Timers.Timer updateUser = new System.Timers.Timer();
 
         protected override void OnClosed(EventArgs e)
         {
@@ -56,12 +64,32 @@ namespace lxw_Udp_Chat
             //ForIllegalCrossThreadCalls
             System.Windows.Forms.Control.CheckForIllegalCrossThreadCalls = false;
             InitializeComponent();
+
+            this.updateUser.Elapsed += new ElapsedEventHandler(updateUserList);
+            this.updateUser.Interval = 10000;
+            this.updateUser.Enabled = true;
+        }
+
+        private void updateUserList(object source, ElapsedEventArgs e)
+        {
+            //NO Online User.
+            if (com.olUser.Count == 0)
+            {
+                MessageBox.Show("Sorry, No online user now");
+            }
+            else
+            {
+                com.olUserArr = com.olUser.ToArray();
+                this.comboBox1.Items.Clear();
+                this.comboBox1.Items.AddRange((object[])com.olUserArr);
+            }
         }
 
         private void ChatWindow_Load(object sender, EventArgs e)
         {
             //Once the window is loaded, broadcast.
-            this.com.receiveBroadcast();
+            //this.com.receiveBroadcast();
+
             //NO Online User.
             if (com.olUser.Count == 0)
             {
@@ -76,7 +104,7 @@ namespace lxw_Udp_Chat
 
         private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
         {
-            this.chatPerson = com.olUserArr.GetValue(this.comboBox1.SelectedIndex).ToString().Replace("Addr:", "");
+            this.chatPerson = this.com.olUserArr.GetValue(this.comboBox1.SelectedIndex).ToString().Replace("Addr:", "");
             this.label1.Text = "Chatting with " + this.chatPerson;
 
             //Key is the last char of the IP who RECEIVE file.
@@ -88,8 +116,7 @@ namespace lxw_Udp_Chat
             thread1.Start();
             
             
-            //UDP
-            
+            //UDP            
             //IPEndPoint ipSent = new IPEndPoint(IPAddress.Parse(this.chatPerson), 10087);
             //socketSent.Connect(ipSent);
             //Create a new thread to listen the user's FILE TRANSFER INFOR.
@@ -218,6 +245,7 @@ namespace lxw_Udp_Chat
 
                             FileStream write = new FileStream(sfd.FileName, FileMode.OpenOrCreate, FileAccess.Write);
                             //Receive the content of the file.
+                            string lastData = "";
                             while (true)
                             {
                                 try
@@ -227,16 +255,26 @@ namespace lxw_Udp_Chat
                                     //Decrypt the packet received.
                                     receiveBytes = decrypt(receiveBytes);
                                     returnData = Encoding.ASCII.GetString(receiveBytes);
+                                                                        
                                     if (returnData == "FILEEND")
                                     {
                                         break;
                                     }
                                     else
                                     {
-                                        //NO need to encrypt.
+                                        //send ACK.
                                         this.com.fileUdpClient.Send(Encoding.Default.GetBytes("OK"), 2, fileIP);
-                                        write.Write(receiveBytes, 0, receiveBytes.Length);
+
+                                        if (lastData == returnData)
+                                        {
+                                            continue;
+                                        }
+                                        else
+                                        {
+                                            write.Write(receiveBytes, 0, receiveBytes.Length);
+                                        }                                        
                                     }
+                                    lastData = returnData;
                                 }
                                 catch (Exception e)
                                 {
@@ -461,6 +499,7 @@ namespace lxw_Udp_Chat
             fileName = new string(charArray);
             
             string content = "FILE:" + fileName;
+
             //byte[] chatPersonBytes = { };
             IPAddress chatIP = IPAddress.Parse(chatPerson);
             IPEndPoint chatIPEndPoint = new IPEndPoint(chatIP, 10087);
@@ -477,17 +516,41 @@ namespace lxw_Udp_Chat
                         {
                             FileStream read = new FileStream(fileAbsoluteName, FileMode.Open, FileAccess.Read);
 
-                            byte[] buff = new byte[1024];
+                            byte[] buff = new byte[4096];
                             int length = 0;
-                            byte[] ack = new byte[2];
-                            while ((length = read.Read(buff, 0, 1024)) != 0)
+
+                            System.Timers.Timer timer = new System.Timers.Timer();
+                            timer.Elapsed += new ElapsedEventHandler(OnTimeEvent);
+                            timer.Interval = 200;
+
+                            while ((length = read.Read(buff, 0, 4096)) != 0)
                             {
                                 //Encrypt the packet to be sent.
                                 buff = encrypt(buff);
-                                this.com.fileUdpClient.Send(buff, length, chatIPEndPoint);
+                                while (true)
+                                { 
+                                    this.com.fileUdpClient.Send(buff, length, chatIPEndPoint);
 
-                                //Receive the ack packet.
-                                ack = this.com.fileUdpClient.Receive(ref chatIPEndPoint);
+                                    timer.Enabled = true;
+                                    //Receive the ack packet.
+                                    //this.ack = this.com.fileUdpClient.Receive(ref chatIPEndPoint);
+
+                                    //wait until into the timer.
+                                    while (!this.inTimeEvent)
+                                    {
+                                    }
+                                    this.inTimeEvent = false;
+                                    timer.Enabled = false;
+
+                                    if (this.recvFlag)  //GET
+                                    {
+                                        break;  //next packet.
+                                    }
+                                    else    //NOT GET
+                                    {
+                                        continue;   //REPEAT this packet.
+                                    }
+                                }
                             }
                             //Define a flag 'FILEEND' that means the end of the file.
                             buff = Encoding.Default.GetBytes("FILEEND");
@@ -520,6 +583,19 @@ namespace lxw_Udp_Chat
                     break;
             }
         }
+
+        //Timer receive.
+        //Still into timerEvent Method, Even though the last run doesn't terminate.
+        public void OnTimeEvent(object source, ElapsedEventArgs e)
+        {
+            //Receive the ack packet.
+            IPAddress chatIP = IPAddress.Parse(chatPerson);
+            IPEndPoint chatIPEndPoint = new IPEndPoint(chatIP, 10087);
+            this.inTimeEvent = true;
+            this.ack = this.com.fileUdpClient.Receive(ref chatIPEndPoint);
+            this.recvFlag = true;
+        }
+
 
         //TCP: tcpSendFile thread. Parent: Master(button3_Click).
         private void tcpSendFile(Object arg)
