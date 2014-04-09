@@ -21,6 +21,8 @@ namespace lxw_Udp_Chat
         public Array olUserArr;
         //FILE TRANSFER. UDP
         public UdpClient fileUdpClient;
+        //FILE YES
+        public UdpClient fileYes;
         //FILE TRANSFER. TCP
         public TcpListener tcpListen;
         /*
@@ -43,6 +45,7 @@ namespace lxw_Udp_Chat
             this.broadcastUDP = new UdpClient(10011);
             this.recvUdpClient = new UdpClient(10086);
             this.fileUdpClient = new UdpClient(10087);
+            this.fileYes = new UdpClient(10088);
             //this.tcpListen = new TcpListener(IPAddress.Parse("127.0.0.1"), 10010);
 
             #region Timer_Broadcast_NOT_USER

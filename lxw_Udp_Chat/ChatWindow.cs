@@ -23,7 +23,7 @@ namespace lxw_Udp_Chat
         //Mutex.
         private Mutex mut = new Mutex();
         //The current person(IP Adress in string) who you are chatting with.
-        private string chatPerson = "";
+        private string chatPerson = "0.0.0.0";
         //FILE TRANSFER.
         //Socket socketSent = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         //private UdpClient fileSent = new UdpClient(10087);
@@ -52,6 +52,8 @@ namespace lxw_Udp_Chat
         private bool recvFlag = false;
         //Update the user-online list.
         private System.Timers.Timer updateUser = new System.Timers.Timer();
+        //FOR FILE TRANSFER: Listen(Receive) or Send?
+        private string state = "LISTEN";
 
         protected override void OnClosed(EventArgs e)
         {
@@ -100,22 +102,13 @@ namespace lxw_Udp_Chat
                 com.olUserArr = com.olUser.ToArray();
                 this.comboBox1.Items.AddRange((object[])com.olUserArr);
             }
-        }
-
-        private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            this.chatPerson = this.com.olUserArr.GetValue(this.comboBox1.SelectedIndex).ToString().Replace("Addr:", "");
-            this.label1.Text = "Chatting with " + this.chatPerson;
-
-            //Key is the last char of the IP who RECEIVE file.
-            this.keyword = (byte)this.chatPerson[this.chatPerson.Length - 1];
 
             //Create a new thread to listen the user's input.
             ThreadStart ts1 = new ThreadStart(listenRemote_10086);
             Thread thread1 = new Thread(ts1);
             thread1.Start();
-            
-            
+
+
             //UDP            
             //IPEndPoint ipSent = new IPEndPoint(IPAddress.Parse(this.chatPerson), 10087);
             //socketSent.Connect(ipSent);
@@ -125,7 +118,7 @@ namespace lxw_Udp_Chat
             //NOTE: Be of vital importance.
             thread2.SetApartmentState(ApartmentState.STA);
             thread2.Start();
-            
+
             /*
             //TCP
             this.com.tcpListen = new TcpListener(IPAddress.Parse(this.chatPerson), 10010);
@@ -135,6 +128,15 @@ namespace lxw_Udp_Chat
             thread5.SetApartmentState(ApartmentState.STA);
             thread5.Start();
             */
+        }
+
+        private void comboBox1_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            this.chatPerson = this.com.olUserArr.GetValue(this.comboBox1.SelectedIndex).ToString().Replace("Addr:", "");
+            this.label1.Text = "Chatting with " + this.chatPerson;
+
+            //Key is the last char of the IP who RECEIVE file.
+            this.keyword = (byte)this.chatPerson[this.chatPerson.Length - 1];           
         }
 
         //send Button.
@@ -203,8 +205,12 @@ namespace lxw_Udp_Chat
         {
             try
             {
+                //IPHostEntry ipHost = Dns.Resolve(Dns.GetHostName());
+                //IPAddress ipAddr = ipHost.AddressList[0];
+                //string ownIP = ipAddr.ToString();
+                //IPEndPoint fileIP = new IPEndPoint(IPAddress.Parse(ownIP), 10087);//new IPEndPoint(IPAddress.Parse(this.chatPerson), 10087);
                 IPEndPoint fileIP = new IPEndPoint(IPAddress.Parse(this.chatPerson), 10087);
-                while (true)
+                while (true && this.state == "LISTEN")
                 {
                     Byte[] receiveBytes = this.com.fileUdpClient.Receive(ref fileIP);
                     string returnData = Encoding.ASCII.GetString(receiveBytes).Trim();
@@ -241,11 +247,19 @@ namespace lxw_Udp_Chat
                             //fileName = sfd.FileName;  //Absolute Path. E.G. "F:\\lxw.txt"
 
                             byte[] sendByte = Encoding.Default.GetBytes("Yes");
-                            this.com.fileUdpClient.Send(sendByte, sendByte.Length, fileIP);
+                            //this.com.fileUdpClient.Send(sendByte, sendByte.Length, fileIP);
+                            IPEndPoint fileIP1 = new IPEndPoint(IPAddress.Parse(this.chatPerson), 10088);
+                            this.com.fileYes.Send(sendByte, sendByte.Length, fileIP1);
 
                             FileStream write = new FileStream(sfd.FileName, FileMode.OpenOrCreate, FileAccess.Write);
                             //Receive the content of the file.
                             string lastData = "";
+
+                            IPHostEntry ipHost = Dns.Resolve(Dns.GetHostName());
+                            IPAddress ipAddr = ipHost.AddressList[0];
+                            string ownIP = ipAddr.ToString();
+                            this.keyword = (byte)ownIP[ownIP.Length - 1];
+
                             while (true)
                             {
                                 try
@@ -255,7 +269,11 @@ namespace lxw_Udp_Chat
                                     //Decrypt the packet received.
                                     receiveBytes = decrypt(receiveBytes);
                                     returnData = Encoding.ASCII.GetString(receiveBytes);
-                                                                        
+
+                                    if (returnData.Length == 7)
+                                    {
+                                        break;
+                                    }
                                     if (returnData == "FILEEND")
                                     {
                                         break;
@@ -291,7 +309,7 @@ namespace lxw_Udp_Chat
                     }
                     else 
                     {
-                        MessageBox.Show("FILE TRANSFER WRONG in listenRemote_10087()");
+                        //MessageBox.Show(returnData + "FILE TRANSFER WRONG in listenRemote_10087()");
                     }
                 }
             }
@@ -500,18 +518,22 @@ namespace lxw_Udp_Chat
             
             string content = "FILE:" + fileName;
 
+            this.state = "SEND";
+
             //byte[] chatPersonBytes = { };
             IPAddress chatIP = IPAddress.Parse(chatPerson);
             IPEndPoint chatIPEndPoint = new IPEndPoint(chatIP, 10087);
             byte[] sendByte = Encoding.Default.GetBytes(content);
             this.com.fileUdpClient.Send(sendByte, sendByte.Length, chatIPEndPoint);
             //Get the result whether the other want to receive.
-            Byte[] receiveBytes = this.com.fileUdpClient.Receive(ref chatIPEndPoint);
+            //Byte[] receiveBytes = this.com.fileUdpClient.Receive(ref chatIPEndPoint);
+            IPEndPoint chatIPEndPoint1 = new IPEndPoint(chatIP, 10088);
+            Byte[] receiveBytes = this.com.fileYes.Receive(ref chatIPEndPoint1);
             string returnData = Encoding.ASCII.GetString(receiveBytes).Trim();
             switch (returnData)
             {
                 case "Yes":
-                    {
+                    {                        
                         try
                         {
                             FileStream read = new FileStream(fileAbsoluteName, FileMode.Open, FileAccess.Read);
@@ -552,17 +574,38 @@ namespace lxw_Udp_Chat
                                     }
                                 }
                             }
-                            //Define a flag 'FILEEND' that means the end of the file.
-                            buff = Encoding.Default.GetBytes("FILEEND");
-                            //Encrypt the packet to be sent.
-                            buff = encrypt(buff);
-                            this.com.fileUdpClient.Send(buff, 7, chatIPEndPoint);
+                            while (true)
+                            {
+                                //Define a flag 'FILEEND' that means the end of the file.
+                                buff = Encoding.Default.GetBytes("FILEEND");
+                                //Encrypt the packet to be sent.
+                                buff = encrypt(buff);
+                                this.com.fileUdpClient.Send(buff, 7, chatIPEndPoint);
+                                timer.Enabled = true;
+
+                                //wait until into the timer.
+                                while (!this.inTimeEvent)
+                                {
+                                }
+                                this.inTimeEvent = false;
+                                timer.Enabled = false;
+
+                                if (this.recvFlag)  //GET
+                                {
+                                    break;  //next packet.
+                                }
+                                else    //NOT GET
+                                {
+                                    continue;   //REPEAT this packet.
+                                }
+                            }
                             read.Close();
                         }
                         catch (Exception e)
                         {
                             MessageBox.Show(e.ToString());
                         }
+                        this.state = "LISTEN";
                     }
                     break;
                 case "No":
@@ -749,11 +792,13 @@ namespace lxw_Udp_Chat
         //Own encrypt.
         public byte[] encrypt(byte[] contentBytes)
         {
+            //string str = Encoding.ASCII.GetString(contentBytes);
             int length = contentBytes.Length;
             for (int i = 0; i < length; ++i)
             {
                 contentBytes[i] += this.keyword;
             }
+            //str = Encoding.ASCII.GetString(contentBytes);
             return contentBytes;
         }
 
