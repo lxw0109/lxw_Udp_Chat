@@ -54,6 +54,8 @@ namespace lxw_Udp_Chat
         private System.Timers.Timer updateUser = new System.Timers.Timer();
         //FOR FILE TRANSFER: Listen(Receive) or Send?
         private string state = "LISTEN";
+        //The maximum times allowed to resend the package; SET it to 3;
+        private int maxForSend = 3;
 
         protected override void OnClosed(EventArgs e)
         {
@@ -184,7 +186,7 @@ namespace lxw_Udp_Chat
                 {
                     // This expression can never be put into the MUTEX REGION.
                     Byte[] receiveBytes = this.com.recvUdpClient.Receive(ref chatPersonIP);
-                    string returnData = Encoding.ASCII.GetString(receiveBytes);
+                    string returnData = Encoding.Default.GetString(receiveBytes);//Encoding.ASCII.GetString(receiveBytes);
                     //MUTEX
                     this.mut.WaitOne();
                     
@@ -213,7 +215,7 @@ namespace lxw_Udp_Chat
                 while (true && this.state == "LISTEN")
                 {
                     Byte[] receiveBytes = this.com.fileUdpClient.Receive(ref fileIP);
-                    string returnData = Encoding.ASCII.GetString(receiveBytes).Trim();
+                    string returnData = Encoding.Default.GetString(receiveBytes).Trim();//Encoding.ASCII.GetString(receiveBytes).Trim();
                     //NOTE: lxw MUTEX NOTE HERE.
                     if (returnData.StartsWith("FILE:"))
                     {
@@ -268,7 +270,7 @@ namespace lxw_Udp_Chat
 
                                     //Decrypt the packet received.
                                     receiveBytes = decrypt(receiveBytes);
-                                    returnData = Encoding.ASCII.GetString(receiveBytes);
+                                    returnData = Encoding.Default.GetString(receiveBytes);//Encoding.ASCII.GetString(receiveBytes);
 
                                     if (returnData.Length == 7)
                                     {
@@ -354,7 +356,7 @@ namespace lxw_Udp_Chat
                     // A stream for reading and writing.
                     NetworkStream stream = client.GetStream();
                     int i = stream.Read(bytes, 0, bytes.Length);
-                    returnData = Encoding.ASCII.GetString(bytes, 0, i);
+                    returnData = Encoding.Default.GetString(bytes, 0, i);//Encoding.ASCII.GetString(bytes, 0, i);
 
                     if (returnData.StartsWith("FILE:"))
                     {
@@ -422,7 +424,7 @@ namespace lxw_Udp_Chat
 
                                     //Own decrypt.
                                     bytes = decrypt(bytes);
-                                    returnData = Encoding.ASCII.GetString(bytes, 0, i);
+                                    returnData = Encoding.Default.GetString(bytes, 0, i);//Encoding.ASCII.GetString(bytes, 0, i);
 
                                     if (returnData == "FILEEND")
                                     {
@@ -529,7 +531,7 @@ namespace lxw_Udp_Chat
             //Byte[] receiveBytes = this.com.fileUdpClient.Receive(ref chatIPEndPoint);
             IPEndPoint chatIPEndPoint1 = new IPEndPoint(chatIP, 10088);
             Byte[] receiveBytes = this.com.fileYes.Receive(ref chatIPEndPoint1);
-            string returnData = Encoding.ASCII.GetString(receiveBytes).Trim();
+            string returnData = Encoding.Default.GetString(receiveBytes).Trim();//Encoding.ASCII.GetString(receiveBytes).Trim();
             switch (returnData)
             {
                 case "Yes":
@@ -545,12 +547,21 @@ namespace lxw_Udp_Chat
                             timer.Elapsed += new ElapsedEventHandler(OnTimeEvent);
                             timer.Interval = 200;
 
+                            int timeOfReSend = 0;
                             while ((length = read.Read(buff, 0, 4096)) != 0)
                             {
                                 //Encrypt the packet to be sent.
                                 buff = encrypt(buff);
+                                timeOfReSend = 0;
                                 while (true)
-                                { 
+                                {
+                                    ++timeOfReSend;
+                                    //if too many times for resending, terminate it.
+                                    if (timeOfReSend > this.maxForSend)
+                                    {
+                                        throw new Exception("File Transfer Error");
+                                    }
+
                                     this.com.fileUdpClient.Send(buff, length, chatIPEndPoint);
 
                                     timer.Enabled = true;
@@ -574,12 +585,20 @@ namespace lxw_Udp_Chat
                                     }
                                 }
                             }
+
+                            timeOfReSend = 0;
                             while (true)
                             {
                                 //Define a flag 'FILEEND' that means the end of the file.
                                 buff = Encoding.Default.GetBytes("FILEEND");
                                 //Encrypt the packet to be sent.
                                 buff = encrypt(buff);
+                                ++timeOfReSend;
+                                //if too many times for resending, terminate it.
+                                if (timeOfReSend > this.maxForSend)
+                                {
+                                    throw new Exception("File Transfer Error");
+                                }
                                 this.com.fileUdpClient.Send(buff, 7, chatIPEndPoint);
                                 timer.Enabled = true;
 
@@ -603,7 +622,14 @@ namespace lxw_Udp_Chat
                         }
                         catch (Exception e)
                         {
-                            MessageBox.Show(e.ToString());
+                            if (e.Message == "File Transfer Error")
+                            {
+                                MessageBox.Show("File Transfer Error");
+                            }
+                            else
+                            {
+                                MessageBox.Show(e.ToString());
+                            }
                         }
                         this.state = "LISTEN";
                     }
@@ -671,7 +697,7 @@ namespace lxw_Udp_Chat
                 string remoteIP = this.chatPerson;
                 TcpClient client = new TcpClient(remoteIP, port); // TcpClient(string hostname, int port)
 
-                Byte[] data = Encoding.ASCII.GetBytes(content);
+                Byte[] data = Encoding.Default.GetBytes(content);//Encoding.ASCII.GetBytes(content);
                 // A client stream for reading and writing.
                 NetworkStream stream = client.GetStream();
                 stream.Write(data, 0, data.Length);
@@ -680,7 +706,7 @@ namespace lxw_Udp_Chat
 
                 Byte[] bytes = new Byte[1024];
                 int i = stream.Read(bytes, 0, bytes.Length);
-                string returnData = Encoding.ASCII.GetString(bytes, 0, i).Trim();
+                string returnData = Encoding.Default.GetString(bytes, 0, i).Trim();//Encoding.ASCII.GetString(bytes, 0, i).Trim();
 
                 switch (returnData)
                 {
